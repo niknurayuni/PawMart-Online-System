@@ -1,0 +1,19 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor/IDE folders
+.vscode/
+.idea/
+
+# Environment/secrets (if you ever add any config with keys)
+.env
+
+# Log files
+*.log
+
+# Node modules (only relevant if you later add npm packages, e.g. for a build tool or live-server)
+node_modules/
+
+# Dependency lock files you don't want tracked (optional — usually you DO want to keep these)
+# package-lock.json
