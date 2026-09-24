@@ -1,5 +1,4 @@
 # PawMart Online System 
-# PawMart Online System 
 
 A web-based ordering platform for a single local pet supply store. Customers
 can register, browse and search products, manage their cart, checkout orders,
