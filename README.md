@@ -118,3 +118,59 @@ pawmart/
 - Team leader holds final merge authority on `main`.
 - Working, tested code is merged into `main` at least twice a week to keep
   the build runnable and merge conflicts small.
+
+## Lab 3 & 4 — Product Management
+
+### Overview
+PawMart is an online pet shop system. The Product Management
+module allows an administrator to add, search, view, edit,
+and delete pet products.
+
+### Technologies Used
+- PHP
+- MySQL
+- HTML and CSS
+- XAMPP for the local development environment
+
+### Implemented Functions
+- Add a new product.
+- Display all products in a table.
+- Search for products and display matching results.
+- Display a "Product not found" message for unsuccessful searches.
+- Edit existing product details.
+- Confirm deletion before removing a product.
+- Display updated product data after changes.
+
+### Product Information
+Each product contains:
+- Product ID
+- Product name
+- Category
+- Description
+- Price in RM
+- Stock quantity
+
+### How to Run PawMart Locally
+1. Install XAMPP.
+2. Copy the project folder into `C:\xampp\htdocs\pawmart`.
+3. Start Apache and MySQL in the XAMPP Control Panel.
+4. Open `http://localhost/phpmyadmin`.
+5. Create a database named `[your database name]` if the SQL
+   export does not already create it.
+6. Select the database and import `database/database.sql`.
+7. Update the project's database connection file with your
+   local MySQL host, database name, username, and password.
+   If a connection template is provided, copy it to the
+   required connection filename before editing.
+8. Open `http://localhost/pawmart/` in your browser.
+
+### How to Check the Functions
+1. Add a sample product and confirm it appears in the table.
+2. Search for an existing product.
+3. Search for an unknown product and check the message.
+4. Edit a product and confirm the updated values.
+5. Cancel a deletion and confirm the product remains.
+6. Confirm deletion and check the remaining product list.
+
+### Lab Documentation
+[Add the report and screenshot locations once uploaded.]
