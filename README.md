@@ -36,6 +36,7 @@ status.
   Manage Categories, Manage Stock, View Orders, Update Order Status).
 - **Class Diagram**: `docs/class-diagram.png` — core classes are Customer,
   Admin, Product, Category, Cart, CartItem, Order, and OrderItem.
+
 ## Data Model (from Class Diagram)
 
 | Class | Key Attributes | Key Methods |
@@ -78,6 +79,10 @@ pawmart/
 | [Isra] | Database / Docs |
 
 
+## 1. Naming Conventions Dictionary
+
+
+
 | Element | Convention | Example |
 |---|---|---|
 | Variables | camelCase | `cartTotal`, `stockQty` |
@@ -118,6 +123,7 @@ pawmart/
 - Team leader holds final merge authority on `main`.
 - Working, tested code is merged into `main` at least twice a week to keep
   the build runnable and merge conflicts small.
+
 
 ## Lab 3 & 4 — Product Management
 
@@ -172,5 +178,3 @@ Each product contains:
 5. Cancel a deletion and confirm the product remains.
 6. Confirm deletion and check the remaining product list.
 
-### Lab Documentation
-[Add the report and screenshot locations once uploaded.]
