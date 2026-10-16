@@ -18,12 +18,6 @@ Import database.sql once. Re-importing adds duplicate sample products, but does
 not delete existing data. If Apache uses another port, include it in the URL.
 If the database is unavailable, confirm MySQL is running and the credentials match.
 
-## Four-member division
-1. Member 1: database.sql, db.php, Product.php model/create method, add_product.php.
-2. Member 2: products.php, product_table.php, Product.php getAll/search methods.
-3. Member 3: edit_product.php, Product.php find/update methods.
-4. Member 4: delete_product.php, Product.php delete method, integration and README.
-
 Coordinate edits to Product.php; its shared methods are already wired together.
 bootstrap.php handles shared validation/escaping/CSRF. form.php, header.php,
 footer.php and style.css are shared interface files. Agree on ownership before editing.
@@ -206,7 +200,7 @@ Each product contains:
 2. Copy the project folder into `C:\xampp\htdocs\pawmart`.
 3. Start Apache and MySQL in the XAMPP Control Panel.
 4. Open `http://localhost/phpmyadmin`.
-5. Create a database named `[your database name]` if the SQL
+5. Create a database named `pawmart` if the SQL
    export does not already create it.
 6. Select the database and import `database/database.sql`.
 7. Update the project's database connection file with your
