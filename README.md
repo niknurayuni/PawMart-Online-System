@@ -38,10 +38,7 @@ Use TEST_CHECKLIST.md. Report: introduction, model/types/methods, create, search
 edit, delete, best-practices analysis, verification, contributions and conclusion.
 Screenshots must come from your running app. Update GitHub with working code.
 
-## Validation status
-Archive integrity was checked. PHP and MySQL were unavailable in the packaging
-environment, so syntax and database-backed behaviour have not been run-tested.
-Verify the app on your local installation using the checklist. This starter does not include payment/cart/login.
+
 =======
 # PawMart Online System 
 
