@@ -17,3 +17,5 @@ node_modules/
 
 # Dependency lock files you don't want tracked (optional — usually you DO want to keep these)
 # package-lock.json
+
+scripts/seed_admin.php
