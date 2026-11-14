@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 <?php
 declare(strict_types=1);
 
@@ -369,3 +370,6 @@ if ($page === 'admin-orders') {
 }
 
 http_response_code(404); layoutStart('Page not found',$cartCount,$flash); ?><div class="empty"><h1>Page not found</h1><p>That PawMart page could not be found.</p><a class="button primary" href="?page=home">Return to shop</a></div><?php layoutEnd();
+=======
+<?php header('Location: products.php'); exit;
+>>>>>>> 4664628ecdfc668ce16b14d7cd5ea36b51f92ac3

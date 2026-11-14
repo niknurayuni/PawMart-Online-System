@@ -3,7 +3,11 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
+<<<<<<< HEAD
 -- Generation Time: Oct 07, 2026 at 10:39 PM
+=======
+-- Generation Time: Oct 10, 2026 at 06:32 AM
+>>>>>>> 4664628ecdfc668ce16b14d7cd5ea36b51f92ac3
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -24,6 +28,7 @@ SET time_zone = "+00:00";
 -- --------------------------------------------------------
 
 --
+<<<<<<< HEAD
 -- Table structure for table `categories`
 --
 
@@ -116,10 +121,13 @@ INSERT INTO `order_items` (`id`, `order_id`, `product_id`, `product_name`, `unit
 -- --------------------------------------------------------
 
 --
+=======
+>>>>>>> 4664628ecdfc668ce16b14d7cd5ea36b51f92ac3
 -- Table structure for table `products`
 --
 
 CREATE TABLE `products` (
+<<<<<<< HEAD
   `id` int(10) UNSIGNED NOT NULL,
   `category_id` int(10) UNSIGNED DEFAULT NULL,
   `name` varchar(150) NOT NULL,
@@ -128,12 +136,21 @@ CREATE TABLE `products` (
   `stock_quantity` int(10) UNSIGNED NOT NULL DEFAULT 0,
   `is_active` tinyint(1) NOT NULL DEFAULT 1,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+=======
+  `product_id` int(11) NOT NULL,
+  `product_name` varchar(100) NOT NULL,
+  `category` varchar(50) NOT NULL,
+  `description` text DEFAULT NULL,
+  `price` decimal(10,2) NOT NULL,
+  `stock_quantity` int(11) NOT NULL DEFAULT 0
+>>>>>>> 4664628ecdfc668ce16b14d7cd5ea36b51f92ac3
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- Dumping data for table `products`
 --
 
+<<<<<<< HEAD
 INSERT INTO `products` (`id`, `category_id`, `name`, `description`, `price`, `stock_quantity`, `is_active`, `created_at`) VALUES
 (1, 2, 'Everyday Dry Food', 'Balanced everyday food for dogs and cats.', 18.90, 22, 1, '2026-10-07 16:47:49'),
 (2, 2, 'Rope Play Toy', 'A durable rope toy for supervised play.', 8.50, 12, 1, '2026-10-07 16:47:49');
@@ -159,12 +176,28 @@ CREATE TABLE `product_images` (
 INSERT INTO `product_images` (`id`, `product_id`, `image_path`, `is_primary`, `created_at`) VALUES
 (1, 1, 'public/uploads/products/cfcb08cbcb0cf64099b54fe349aa661a.jpg', 1, '2026-10-07 18:06:24'),
 (2, 2, 'public/uploads/products/23278d92fee013a16f22a6fe548861ae.jpg', 1, '2026-10-07 20:39:01');
+=======
+INSERT INTO `products` (`product_id`, `product_name`, `category`, `description`, `price`, `stock_quantity`) VALUES
+(1, 'Adult Cat Dry Food 1 kg', 'Pet Food', 'Dry food for adult cats', 25.90, 30),
+(2, 'Adult Dog Dry Food 2 kg', 'Pet Food', 'Dry food for adult dogs', 45.00, 20),
+(3, 'Tuna Wet Cat Food 85 g', 'Pet Food', 'Tuna-flavoured wet cat food', 3.50, 60),
+(4, 'Chicken Dog Treats 100 g', 'Pet Treats', 'Chicken-flavoured dog treats', 12.90, 25),
+(5, 'Cat Teaser Wand', 'Pet Toys', 'Interactive wand toy for cats', 8.90, 35),
+(6, 'Rubber Dog Ball', 'Pet Toys', 'Rubber ball for supervised play', 10.50, 30),
+(7, 'Adjustable Pet Collar', 'Accessories', 'Adjustable collar for pets', 15.90, 20),
+(8, 'Dog Walking Leash', 'Accessories', 'Leash for daily walks', 19.90, 15),
+(9, 'Stainless Steel Feeding Bowl', 'Feeding Supplies', 'Reusable bowl for food or water', 14.50, 25),
+(10, 'Pet Shampoo 250 ml', 'Grooming Supplies', 'Shampoo designed for pets', 22.90, 18),
+(11, 'Pet Grooming Brush', 'Grooming Supplies', 'Brush for routine coat grooming', 13.90, 22),
+(12, 'Pet Carrier', 'Travel Supplies', 'Carrier for transporting small pets', 65.00, 10);
+>>>>>>> 4664628ecdfc668ce16b14d7cd5ea36b51f92ac3
 
 --
 -- Indexes for dumped tables
 --
 
 --
+<<<<<<< HEAD
 -- Indexes for table `categories`
 --
 ALTER TABLE `categories`
@@ -207,12 +240,19 @@ ALTER TABLE `products`
 ALTER TABLE `product_images`
   ADD PRIMARY KEY (`id`),
   ADD KEY `idx_product_image_primary` (`product_id`,`is_primary`);
+=======
+-- Indexes for table `products`
+--
+ALTER TABLE `products`
+  ADD PRIMARY KEY (`product_id`);
+>>>>>>> 4664628ecdfc668ce16b14d7cd5ea36b51f92ac3
 
 --
 -- AUTO_INCREMENT for dumped tables
 --
 
 --
+<<<<<<< HEAD
 -- AUTO_INCREMENT for table `categories`
 --
 ALTER TABLE `categories`
@@ -276,6 +316,12 @@ ALTER TABLE `products`
 --
 ALTER TABLE `product_images`
   ADD CONSTRAINT `fk_product_image_product` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE;
+=======
+-- AUTO_INCREMENT for table `products`
+--
+ALTER TABLE `products`
+  MODIFY `product_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=13;
+>>>>>>> 4664628ecdfc668ce16b14d7cd5ea36b51f92ac3
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;

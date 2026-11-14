@@ -45,7 +45,11 @@ final class ProductRepository
 
     public function save(array $data, ?int $id = null): int
     {
+<<<<<<< HEAD
         $values = [$data['category_id'] ?: null, trim($data['name']), trim($data['description']), $data['price'], (int)$data['stock_quantity'], (int)$data['is_active']];
+=======
+        $values = [$data['category_id'] ?: null, trim($data['name']), trim($data['description']), (float)$data['price'], (int)$data['stock_quantity'], (int)$data['is_active']];
+>>>>>>> 4664628ecdfc668ce16b14d7cd5ea36b51f92ac3
         if ($id) {
             $values[] = $id;
             $stmt = $this->db->prepare('UPDATE products SET category_id=?,name=?,description=?,price=?,stock_quantity=?,is_active=? WHERE id=?');

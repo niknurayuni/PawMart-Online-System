@@ -6,14 +6,21 @@ final class OrderService
     public function __construct(private PDO $db) {}
 
     /** Create an order and reserve its stock as one atomic operation. */
+<<<<<<< HEAD
     public function place(int $customerId, array $cart, ?StripeCheckout $stripe = null): int
+=======
+    public function place(int $customerId, array $cart): int
+>>>>>>> 4664628ecdfc668ce16b14d7cd5ea36b51f92ac3
     {
         if (!$cart) throw new RuntimeException('Your cart is empty.');
         $this->db->beginTransaction();
         try {
             $lines = []; $total = 0.0;
             $stock = $this->db->prepare('SELECT id,name,price,stock_quantity,is_active FROM products WHERE id=? FOR UPDATE');
+<<<<<<< HEAD
             ksort($cart);
+=======
+>>>>>>> 4664628ecdfc668ce16b14d7cd5ea36b51f92ac3
             foreach ($cart as $id => $quantity) {
                 $stock->execute([(int)$id]); $item = $stock->fetch();
                 if (!$item || !$item['is_active'] || (int)$quantity <= 0 || (int)$item['stock_quantity'] < (int)$quantity) throw new RuntimeException('A cart item is no longer in stock. Update your cart and try again.');
@@ -28,6 +35,7 @@ final class OrderService
                 $reduceStock->execute([$line['quantity'], $line['id'], $line['quantity']]);
                 if ($reduceStock->rowCount() !== 1) throw new RuntimeException('Stock changed during checkout. Please try again.');
             }
+<<<<<<< HEAD
             if ($stripe !== null) {
                 $amount = (int)round($total * 100);
                 if ($amount < 200) throw new InvalidArgumentException('The Stripe checkout minimum is RM 2.00.');
@@ -36,6 +44,8 @@ final class OrderService
                 $savePayment = $this->db->prepare("UPDATE orders SET payment_status='unpaid', stripe_session_id=? WHERE id=?");
                 $savePayment->execute([$session['id'], $orderId]);
             }
+=======
+>>>>>>> 4664628ecdfc668ce16b14d7cd5ea36b51f92ac3
             $this->db->commit();
             return $orderId;
         } catch (Throwable $exception) {
@@ -63,6 +73,7 @@ final class OrderService
         return $stmt->fetchAll();
     }
 
+<<<<<<< HEAD
     public function checkoutForCustomer(int $orderId, int $customerId): string
     {
         $stmt = $this->db->prepare('SELECT stripe_session_id FROM orders WHERE id=? AND customer_id=?');
@@ -112,6 +123,8 @@ final class OrderService
         }
     }
 
+=======
+>>>>>>> 4664628ecdfc668ce16b14d7cd5ea36b51f92ac3
     public function setStatus(int $orderId, string $status): void
     {
         if (!in_array($status, ['pending','processing','shipped','completed','cancelled'], true)) {
@@ -119,6 +132,7 @@ final class OrderService
         }
         $this->db->beginTransaction();
         try {
+<<<<<<< HEAD
             $stmt = $this->db->prepare('SELECT status, payment_status FROM orders WHERE id=? FOR UPDATE');
             $stmt->execute([$orderId]);
             $order = $stmt->fetch();
@@ -129,6 +143,21 @@ final class OrderService
             if ($old === 'completed' && $status !== 'completed') throw new InvalidArgumentException('Completed orders cannot be changed.');
             if ($status === 'cancelled' && $old !== 'cancelled') {
                 $this->restoreStock($orderId);
+=======
+            $stmt = $this->db->prepare('SELECT status FROM orders WHERE id=? FOR UPDATE');
+            $stmt->execute([$orderId]);
+            $old = $stmt->fetchColumn();
+            if ($old === false) throw new InvalidArgumentException('Order not found.');
+            if ($old === 'cancelled' && $status !== 'cancelled') throw new InvalidArgumentException('Cancelled orders cannot be reopened.');
+            if ($old === 'completed' && $status !== 'completed') throw new InvalidArgumentException('Completed orders cannot be changed.');
+            if ($status === 'cancelled' && $old !== 'cancelled') {
+                $items = $this->db->prepare('SELECT product_id, quantity FROM order_items WHERE order_id=?');
+                $items->execute([$orderId]);
+                $restore = $this->db->prepare('UPDATE products SET stock_quantity=stock_quantity+? WHERE id=?');
+                foreach ($items->fetchAll() as $line) {
+                    if ($line['product_id'] !== null) $restore->execute([(int)$line['quantity'], (int)$line['product_id']]);
+                }
+>>>>>>> 4664628ecdfc668ce16b14d7cd5ea36b51f92ac3
             }
             $update = $this->db->prepare('UPDATE orders SET status=? WHERE id=?');
             $update->execute([$status, $orderId]);
@@ -138,6 +167,7 @@ final class OrderService
             throw $exception;
         }
     }
+<<<<<<< HEAD
 
     private function restoreStock(int $orderId): void
     {
@@ -148,4 +178,6 @@ final class OrderService
             if ($line['product_id'] !== null) $restore->execute([(int)$line['quantity'], (int)$line['product_id']]);
         }
     }
+=======
+>>>>>>> 4664628ecdfc668ce16b14d7cd5ea36b51f92ac3
 }

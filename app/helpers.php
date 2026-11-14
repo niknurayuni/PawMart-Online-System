@@ -11,9 +11,13 @@ function csrf_token(): string
 function csrf_field(): string { return '<input type="hidden" name="csrf" value="' . e(csrf_token()) . '">'; }
 function require_csrf(): void
 {
+<<<<<<< HEAD
     $expected = $_SESSION['csrf'] ?? null;
     $submitted = $_POST['csrf'] ?? null;
     if (!is_string($expected) || !is_string($submitted) || !hash_equals($expected, $submitted)) {
+=======
+    if (!hash_equals($_SESSION['csrf'] ?? '', (string)($_POST['csrf'] ?? ''))) {
+>>>>>>> 4664628ecdfc668ce16b14d7cd5ea36b51f92ac3
         http_response_code(419); exit('Your form expired. Please go back and try again.');
     }
 }
