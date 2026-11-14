@@ -3,6 +3,14 @@ declare(strict_types=1);
 
 session_start();
 require __DIR__ . '/app/helpers.php';
+require __DIR__ . '/app/AuthMiddleware.php';
+require __DIR__ . '/app/Input.php';
+
+set_exception_handler(static function (Throwable $exception): void {
+    error_log('PawMart request failed: ' . get_class($exception) . ' (' . $exception->getCode() . ')');
+    http_response_code(500);
+    echo 'PawMart could not load this page. Please try again.';
+});
 require __DIR__ . '/app/Database.php';
 require __DIR__ . '/app/ProductRepository.php';
 require __DIR__ . '/app/CategoryRepository.php';
@@ -10,11 +18,27 @@ require __DIR__ . '/app/AuthService.php';
 require __DIR__ . '/app/CustomerRepository.php';
 require __DIR__ . '/app/OrderService.php';
 require __DIR__ . '/app/Cart.php';
+require __DIR__ . '/app/CartService.php';
+require __DIR__ . '/app/StripeCheckout.php';
+
+$page = is_string($_GET['page'] ?? null) ? $_GET['page'] : 'home';
+$method = $_SERVER['REQUEST_METHOD'];
+$isWebhook = $page === 'stripe-webhook' && $method === 'POST';
+$action = '';
+if (!$isWebhook) {
+    AuthMiddleware::forPage($page);
+    if ($method === 'POST') {
+        require_csrf();
+        $action = is_string($_POST['action'] ?? null) ? $_POST['action'] : '';
+        AuthMiddleware::forAction($action);
+    }
+}
 
 try {
     $db = Database::connection();
-} catch (Throwable $exception) {
-    http_response_code(500);
+} catch (PDOException $exception) {
+    error_log('PawMart database connection failed: ' . $exception->getCode());
+    http_response_code(503);
     exit('Cannot connect to MySQL. Follow the database setup steps in README.md, then refresh this page.');
 }
 $products = new ProductRepository($db);
@@ -23,18 +47,56 @@ $auth = new AuthService($db);
 $customers = new CustomerRepository($db);
 $orders = new OrderService($db);
 $cart = new Cart();
-$page = (string)($_GET['page'] ?? 'home');
+$cartService = new CartService($cart, $products);
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    require_csrf();
-    $action = (string)($_POST['action'] ?? '');
+$stripe = new StripeCheckout(
+    getenv('PAWMART_STRIPE_SECRET_KEY') ?: '',
+    getenv('PAWMART_APP_URL') ?: 'http://localhost/pawmart1/index.php'
+);
+
+if ($isWebhook) {
+    try {
+        $event = StripeCheckout::verifyEvent(
+            (string)file_get_contents('php://input'),
+            $_SERVER['HTTP_STRIPE_SIGNATURE'] ?? '',
+            getenv('PAWMART_STRIPE_WEBHOOK_SECRET') ?: ''
+        );
+        if (in_array($event['type'] ?? '', ['checkout.session.completed', 'checkout.session.expired'], true)) {
+            $orders->syncStripeSession($stripe->retrieve($event['data']['object']['id'] ?? ''));
+        }
+        http_response_code(204);
+    } catch (InvalidArgumentException $exception) {
+        http_response_code(400);
+    } catch (Throwable $exception) {
+        error_log('PawMart Stripe webhook failed: ' . get_class($exception) . ' (' . $exception->getCode() . ')');
+        http_response_code(503);
+    }
+    exit;
+}
+
+if ($page === 'payment-return' && $method === 'GET') {
+    try {
+        $session = $stripe->retrieve(Input::text($_GET['session_id'] ?? null, 'checkout reference', 255));
+        $payment = $orders->syncStripeSession($session, (int)user()['id']);
+        if ($payment === 'paid') {
+            flash('Stripe test payment confirmed.');
+        } else {
+            flash('Payment could not be confirmed. Check your order history.', 'error');
+        }
+    } catch (RuntimeException|InvalidArgumentException $exception) {
+        if ($exception instanceof PDOException) {
+            error_log('PawMart payment verification database error: ' . $exception->getCode());
+        }
+        flash('Payment verification is unavailable. Check payment again from My orders.', 'error');
+    }
+    redirect('?page=orders');
+}
+
+if ($method === 'POST') {
     try {
         switch ($action) {
             case 'register':
-                $name = trim((string)($_POST['name'] ?? ''));
-                $email = trim((string)($_POST['email'] ?? ''));
-                $password = (string)($_POST['password'] ?? '');
-                if ($name === '' || !filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($password) < 8) throw new InvalidArgumentException('Enter your name, a valid email, and a password of at least 8 characters.');
+                [$name, $email, $password] = Input::registration($_POST);
                 $auth->register($name, $email, $password);
                 $auth->login($email, $password);
                 flash('Your PawMart account is ready.'); redirect('?page=home');
@@ -49,10 +111,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 flash('Welcome to the PawMart admin area, ' . user()['name'] . '!'); redirect('?page=admin-products');
             case 'admin_setup':
-                $name = trim((string)($_POST['name'] ?? ''));
-                $email = trim((string)($_POST['email'] ?? ''));
-                $password = (string)($_POST['password'] ?? '');
-                if ($name === '' || !filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($password) < 8) throw new InvalidArgumentException('Enter your name, a valid email, and a password of at least 8 characters.');
+                [$name, $email, $password] = Input::registration($_POST);
                 $auth->createFirstAdmin($name, $email, $password);
                 $auth->login($email, $password);
                 flash('Admin account created. Welcome to PawMart!'); redirect('?page=admin-products');
@@ -61,41 +120,69 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 session_destroy();
                 redirect('?page=home');
             case 'profile_save':
-                require_login();
                 $name = trim((string)($_POST['name'] ?? ''));
                 if ($name === '') throw new InvalidArgumentException('Enter your name.');
                 $customers->updateProfile(user()['id'], $name, (string)($_POST['phone'] ?? ''), (string)($_POST['address'] ?? ''));
                 $_SESSION['user']['name'] = $name;
                 flash('Your profile has been updated.'); redirect('?page=profile');
             case 'cart_add':
-                block_admin_shopping();
-                $id = filter_input(INPUT_POST, 'product_id', FILTER_VALIDATE_INT);
-                $quantity = filter_input(INPUT_POST, 'quantity', FILTER_VALIDATE_INT);
-                $product = $id ? $products->find((int)$id) : null;
-                if (!$product || !$product['is_active']) throw new InvalidArgumentException('That product is unavailable.');
-                $quantity = max(1, min((int)$quantity, (int)$product['stock_quantity']));
-                $cart->add((int)$id, (int)$quantity, (int)$product['stock_quantity']);
+                $cartService->add($_POST['product_id'] ?? null, $_POST['quantity'] ?? null);
                 flash('Added to your cart.'); redirect('?page=home');
             case 'cart_update':
-                block_admin_shopping();
-                foreach (($_POST['quantity'] ?? []) as $id => $quantity) {
-                    $id = (int)$id; $quantity = max(0, (int)$quantity);
-                    $product = $products->find($id);
-                    $cart->update($id, $quantity, (int)($product['stock_quantity'] ?? 0));
-                }
+                $cartService->update($_POST['quantity'] ?? null);
                 flash('Cart updated.'); redirect('?page=cart');
             case 'checkout':
-                require_customer();
-                $orderId = $orders->place((int)user()['id'], $cart->items());
-                $cart->clear(); flash('Order #' . $orderId . ' placed successfully.'); redirect('?page=orders');
+                $stripe->assertConfigured();
+                $customerId = (int)user()['id'];
+                $orderId = $orders->place($customerId, $cart->items(), $stripe);
+                $cart->clear();
+                try {
+                    $session = $stripe->retrieve($orders->checkoutForCustomer($orderId, $customerId));
+                    redirect($stripe->url($session));
+                } catch (RuntimeException|InvalidArgumentException $exception) {
+                    error_log('PawMart checkout link unavailable: ' . get_class($exception) . ' (' . $exception->getCode() . ')');
+                    flash('Order saved. Continue payment from My orders.', 'error');
+                    redirect('?page=orders');
+                }
+            case 'payment_resume':
+            case 'payment_check':
+            case 'payment_cancel':
+                $customerId = (int)user()['id'];
+                $sessionId = $orders->checkoutForCustomer(Input::integer($_POST['id'] ?? null, 'order ID', 1), $customerId);
+                $session = $stripe->retrieve($sessionId);
+                $payment = $orders->syncStripeSession($session, $customerId);
+                if ($action === 'payment_cancel' && $payment === 'unpaid' && ($session['status'] ?? '') === 'open') {
+                    try {
+                        $session = $stripe->expire($sessionId);
+                    } catch (RuntimeException $exception) {
+                        // A payment or expiration can win the race while cancellation is in flight.
+                        $session = $stripe->retrieve($sessionId);
+                        if (($session['status'] ?? '') === 'open') {
+                            throw $exception;
+                        }
+                    }
+                    $payment = $orders->syncStripeSession($session, $customerId);
+                }
+                if ($action === 'payment_resume' && $payment === 'unpaid' && ($session['status'] ?? '') === 'open') {
+                    redirect($stripe->url($session));
+                }
+                flash(match ($payment) {
+                    'paid' => 'Stripe test payment confirmed.',
+                    'expired' => $action === 'payment_cancel'
+                        ? 'Unpaid checkout cancelled. Reserved stock was released.'
+                        : 'Stripe checkout expired. Reserved stock was released.',
+                    default => 'Stripe payment is awaiting confirmation.',
+                });
+                redirect('?page=orders');
             case 'product_save':
-                require_admin();
-                $name = trim((string)($_POST['name'] ?? '')); $description = trim((string)($_POST['description'] ?? ''));
-                $price = filter_var($_POST['price'] ?? null, FILTER_VALIDATE_FLOAT); $stockQty = filter_var($_POST['stock_quantity'] ?? null, FILTER_VALIDATE_INT);
-                if ($name === '' || $price === false || $price < 0 || $stockQty === false || $stockQty < 0) throw new InvalidArgumentException('Enter a product name, non-negative price, and whole-number stock quantity.');
-                $categoryId = (int)($_POST['category_id'] ?? 0);
-                $productId = !empty($_POST['id']) ? (int)$_POST['id'] : null;
-                $existingProduct = $productId ? $products->find($productId) : null;
+                $productData = Input::product($_POST);
+                if ($productData['category_id'] !== null && !$categories->exists($productData['category_id'])) {
+                    throw new InvalidArgumentException('Choose an existing product category.');
+                }
+                $productId = Input::integer(($_POST['id'] ?? '') === '' ? 0 : $_POST['id'], 'product ID', 0) ?: null;
+                if ($productId !== null && !$products->find($productId)) {
+                    throw new InvalidArgumentException('That product no longer exists.');
+                }
                 $uploadedImagePath = null;
                 if (isset($_FILES['image']) && $_FILES['image']['error'] !== UPLOAD_ERR_NO_FILE) {
                     if ($_FILES['image']['error'] !== UPLOAD_ERR_OK) throw new InvalidArgumentException('The image upload did not finish. Please try again.');
@@ -109,49 +196,84 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if (!move_uploaded_file($_FILES['image']['tmp_name'], $uploadDirectory . '/' . $fileName)) throw new RuntimeException('Could not save the product image. Check folder permissions.');
                     $uploadedImagePath = 'public/uploads/products/' . $fileName;
                 }
-                $savedProductId = $products->save(['category_id' => $categoryId ?: null, 'name' => $name, 'description' => $description, 'price' => $price, 'stock_quantity' => $stockQty, 'is_active' => isset($_POST['is_active']) ? 1 : 0], $productId);
-                if ($uploadedImagePath !== null) {
-                    $oldImagePath = $products->setPrimaryImage($savedProductId, $uploadedImagePath);
-                    if ($oldImagePath && str_starts_with($oldImagePath, 'public/uploads/products/')) {
-                        $oldFile = __DIR__ . '/' . $oldImagePath;
-                        if (is_file($oldFile)) unlink($oldFile);
+                $oldImagePath = null;
+                try {
+                    $db->beginTransaction();
+                    $savedProductId = $products->save($productData, $productId);
+                    if ($uploadedImagePath !== null) {
+                        $oldImagePath = $products->setPrimaryImage($savedProductId, $uploadedImagePath);
+                    }
+                    $db->commit();
+                } catch (Throwable $exception) {
+                    if ($db->inTransaction()) {
+                        $db->rollBack();
+                    }
+                    if ($uploadedImagePath !== null) {
+                        unlink(__DIR__ . '/' . $uploadedImagePath);
+                    }
+                    throw $exception;
+                }
+                if ($oldImagePath && str_starts_with($oldImagePath, 'public/uploads/products/')) {
+                    $oldFile = __DIR__ . '/' . $oldImagePath;
+                    if (is_file($oldFile)) {
+                        unlink($oldFile);
                     }
                 }
                 flash('Product saved.'); redirect('?page=admin-products');
             case 'product_delete':
-                require_admin(); $productToDelete = $products->find((int)($_POST['id'] ?? 0)); $products->delete((int)($_POST['id'] ?? 0));
+                $productToDelete = $products->find((int)($_POST['id'] ?? 0)); $products->delete((int)($_POST['id'] ?? 0));
                 if ($productToDelete && str_starts_with((string)$productToDelete['image_path'], 'public/uploads/products/')) { $oldFile = __DIR__ . '/' . $productToDelete['image_path']; if (is_file($oldFile)) unlink($oldFile); }
                 flash('Product deleted.'); redirect('?page=admin-products');
             case 'category_save':
-                require_admin(); $name = trim((string)($_POST['name'] ?? ''));
+                $name = trim((string)($_POST['name'] ?? ''));
                 if ($name === '') throw new InvalidArgumentException('Enter a category name.');
                 $categories->save($name, !empty($_POST['id']) ? (int)$_POST['id'] : null); flash('Category saved.'); redirect('?page=admin-categories');
             case 'category_delete':
-                require_admin(); $categories->delete((int)($_POST['id'] ?? 0)); flash('Category deleted. Products in it become uncategorized.'); redirect('?page=admin-categories');
+                $categories->delete((int)($_POST['id'] ?? 0)); flash('Category deleted. Products in it become uncategorized.'); redirect('?page=admin-categories');
             case 'category_update':
-                require_admin(); $name = trim((string)($_POST['name'] ?? ''));
+                $name = trim((string)($_POST['name'] ?? ''));
                 if ($name === '') throw new InvalidArgumentException('Enter a category name.');
                 $categories->save($name, (int)($_POST['id'] ?? 0)); flash('Category updated.'); redirect('?page=admin-categories');
             case 'order_status':
-                require_admin(); $status = (string)($_POST['status'] ?? '');
+                $status = $_POST['status'] ?? null;
                 if (!in_array($status, ['pending','processing','shipped','completed','cancelled'], true)) throw new InvalidArgumentException('Choose a valid order status.');
-                $orders->setStatus((int)($_POST['id'] ?? 0), $status); flash('Order status updated.'); redirect('?page=admin-orders');
+                $orders->setStatus(Input::integer($_POST['id'] ?? null, 'order ID', 1), $status); flash('Order status updated.'); redirect('?page=admin-orders');
             default: throw new InvalidArgumentException('Unknown action.');
         }
+    } catch (PDOException $exception) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+        error_log('PawMart database action ' . $action . ' failed: ' . $exception->getCode());
+        $duplicate = (int)($exception->errorInfo[1] ?? 0) === 1062;
+        $message = match (true) {
+            $duplicate && in_array($action, ['register', 'admin_setup'], true) => 'That email address is already registered.',
+            $duplicate && in_array($action, ['category_save', 'category_update'], true) => 'That category name is already in use.',
+            default => 'A database error prevented the request from completing. Please try again.',
+        };
+        flash($message, 'error');
+        redirect('?page=' . rawurlencode($page));
     } catch (InvalidArgumentException|RuntimeException $exception) {
-        if ($db->inTransaction()) $db->rollBack();
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
         flash($exception->getMessage(), 'error');
         redirect('?page=' . rawurlencode($page));
-    } catch (PDOException $exception) {
-        if ($db->inTransaction()) $db->rollBack();
-        $message = $exception->getCode() === '23000' ? 'That email or category name is already in use.' : 'The request could not be saved. Please check the values and try again.';
-        flash($message, 'error'); redirect('?page=' . rawurlencode($page));
     }
 }
 
 $cartCount = $cart->count();
 $flash = $_SESSION['flash'] ?? null; unset($_SESSION['flash']);
 $categoryRows = $categories->all();
+function paymentLabel(string $status): string {
+    return match ($status) {
+        'paid' => 'Paid (Stripe test)',
+        'unpaid' => 'Awaiting payment',
+        'expired' => 'Checkout expired',
+        default => 'Legacy order',
+    };
+}
+
 function layoutStart(string $title, int $cartCount, ?array $flash): void { ?>
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title><?= e($title) ?> · PawMart</title><link rel="icon" href="public/assets/favicon.ico?v=3" type="image/x-icon"><link rel="stylesheet" href="public/assets/style.css"><link rel="stylesheet" href="public/assets/enhancements.css"><script src="public/assets/live-search.js" defer></script></head><body>
 <header class="topbar"><a class="brand" href="?page=<?= user() && user()['role']==='admin' ? 'admin-products' : 'home' ?>"><span class="brand-mark"><img src="public/assets/pawmart-logo.png" alt="PawMart logo"></span><span>PawMart<small>pet essentials, made easy</small></span></a><nav><?php if (user() && user()['role']==='admin'): ?><a href="?page=admin-products">Admin</a><form method="post" class="inline"><?= csrf_field() ?><input type="hidden" name="action" value="logout"><button class="nav-button">Sign out</button></form><?php else: ?><a href="?page=home">Shop</a><a href="?page=cart">Cart <b class="count"><?= $cartCount ?></b></a><?php if (user()): ?><a href="?page=profile">Profile</a><a href="?page=orders">My orders</a><form method="post" class="inline"><?= csrf_field() ?><input type="hidden" name="action" value="logout"><button class="nav-button">Sign out</button></form><?php else: ?><a href="?page=login">Sign in</a><a class="nav-cta" href="?page=register">Create account</a><?php endif; ?><?php endif; ?></nav></header>
@@ -177,7 +299,6 @@ if ($page === 'login' || $page === 'register' || $page === 'admin-login' || $pag
 }
 
 if ($page === 'home') {
-    block_admin_shopping();
     $term = trim((string)($_GET['q'] ?? '')); $selectedCategory = (int)($_GET['category'] ?? 0);
     $items = $products->search();
     layoutStart('Shop', $cartCount, $flash); ?>
@@ -189,17 +310,16 @@ if ($page === 'home') {
 }
 
 if ($page === 'cart') {
-    block_admin_shopping();
     $lines = []; $total = 0.0;
     foreach ($cart->items() as $id => $qty) { $product = $products->find((int)$id); if ($product && $product['is_active']) { $product['quantity'] = min((int)$qty,(int)$product['stock_quantity']); $product['line_total'] = $product['quantity']*(float)$product['price']; $total += $product['line_total']; $lines[] = $product; } }
     layoutStart('Your cart', $cartCount, $flash); ?>
     <section class="page-head"><p class="eyebrow">YOUR PAWMART BAG</p><h1>Your cart</h1><p class="muted">Review your picks before placing your order.</p></section>
-    <?php if (!$lines): ?><div class="empty"><div class="empty-icon">🛒</div><h3>Your cart is waiting for a little something</h3><p>Explore the shop and find a new favorite.</p><a class="button primary" href="?page=home">Browse products</a></div><?php else: ?><div class="cart-layout"><form method="post" class="cart-items"><?= csrf_field() ?><input type="hidden" name="action" value="cart_update"><?php foreach ($lines as $line): ?><div class="cart-line"><div class="mini-paw">🐾</div><div class="grow"><strong><?= e($line['name']) ?></strong><span>RM <?= number_format((float)$line['price'],2) ?> each</span></div><label class="qty">Qty<input type="number" name="quantity[<?= (int)$line['id'] ?>]" value="<?= (int)$line['quantity'] ?>" min="0" max="<?= (int)$line['stock_quantity'] ?>"></label><strong>RM <?= number_format((float)$line['line_total'],2) ?></strong></div><?php endforeach; ?><button class="button outline">Update cart</button><p class="small muted">Set quantity to 0 to remove an item.</p></form><aside class="summary"><h2>Order summary</h2><div class="summary-row"><span>Subtotal</span><span>RM <?= number_format($total,2) ?></span></div><div class="summary-row"><span>Delivery</span><span>Calculated at checkout</span></div><hr><div class="summary-row total"><span>Total</span><span>RM <?= number_format($total,2) ?></span></div><form method="post"><?= csrf_field() ?><input type="hidden" name="action" value="checkout"><button class="button primary full">Place order</button></form><?php if (!user()): ?><p class="small muted">Sign in or create an account to continue. <a href="?page=login">Sign in</a>.</p><?php endif; ?></aside></div><?php endif; ?>
+    <?php if (!$lines): ?><div class="empty"><div class="empty-icon">🛒</div><h3>Your cart is waiting for a little something</h3><p>Explore the shop and find a new favorite.</p><a class="button primary" href="?page=home">Browse products</a></div><?php else: ?><div class="cart-layout"><form method="post" class="cart-items"><?= csrf_field() ?><input type="hidden" name="action" value="cart_update"><?php foreach ($lines as $line): ?><div class="cart-line"><div class="mini-paw">🐾</div><div class="grow"><strong><?= e($line['name']) ?></strong><span>RM <?= number_format((float)$line['price'],2) ?> each</span></div><label class="qty">Qty<input type="number" name="quantity[<?= (int)$line['id'] ?>]" value="<?= (int)$line['quantity'] ?>" min="0" max="<?= (int)$line['stock_quantity'] ?>"></label><strong>RM <?= number_format((float)$line['line_total'],2) ?></strong></div><?php endforeach; ?><button class="button outline">Update cart</button><p class="small muted">Set quantity to 0 to remove an item.</p></form><aside class="summary"><h2>Order summary</h2><div class="summary-row"><span>Subtotal</span><span>RM <?= number_format($total,2) ?></span></div><div class="summary-row"><span>Delivery</span><span>Calculated at checkout</span></div><hr><div class="summary-row total"><span>Total</span><span>RM <?= number_format($total,2) ?></span></div><form method="post"><?= csrf_field() ?><input type="hidden" name="action" value="checkout"><button class="button primary full">Pay with Stripe (test)</button></form><?php if (!user()): ?><p class="small muted">Sign in or create an account to continue. <a href="?page=login">Sign in</a>.</p><?php endif; ?></aside></div><?php endif; ?>
     <?php layoutEnd(); exit;
 }
 
 if ($page === 'profile') {
-    require_customer(); $profile = $customers->find(user()['id']);
+    $profile = $customers->find(user()['id']);
     layoutStart('My profile', $cartCount, $flash); ?>
     <section class="page-head"><p class="eyebrow">YOUR PAWMART ACCOUNT</p><h1>My profile</h1><p class="muted">Keep your contact details up to date.</p></section>
     <section class="auth-card"><form method="post" class="stack"><?= csrf_field() ?><input type="hidden" name="action" value="profile_save"><label>Your name<input name="name" value="<?= e($profile['name'] ?? '') ?>" maxlength="120" required></label><label>Email address<input value="<?= e($profile['email'] ?? '') ?>" disabled></label><label>Phone<input name="phone" value="<?= e($profile['phone'] ?? '') ?>" maxlength="30"></label><label>Delivery address<textarea name="address" rows="4" maxlength="1000"><?= e($profile['address'] ?? '') ?></textarea></label><button class="button primary">Save profile</button></form></section>
@@ -207,13 +327,24 @@ if ($page === 'profile') {
 }
 
 if ($page === 'orders') {
-    require_customer(); $customerOrders=$orders->forCustomer((int)user()['id']);
+    $customerOrders=$orders->forCustomer((int)user()['id']);
     layoutStart('My orders', $cartCount, $flash); ?><section class="page-head"><p class="eyebrow">ORDER HISTORY</p><h1>My orders</h1><p class="muted">A little update on the good things headed your way.</p></section>
-    <?php if (!$customerOrders): ?><div class="empty"><h3>No orders yet</h3><p>Your first PawMart order will show up here.</p><a class="button primary" href="?page=home">Start shopping</a></div><?php else: ?><div class="order-list"><?php foreach ($customerOrders as $order): ?><article class="order-card"><div class="order-head"><div><span class="muted small">ORDER #<?= (int)$order['id'] ?></span><h3><?= date('M j, Y',strtotime($order['created_at'])) ?></h3></div><span class="status <?= e($order['status']) ?>"><?= e(ucfirst($order['status'])) ?></span></div><div class="order-items"><?php foreach ($orders->items((int)$order['id']) as $line): ?><div><span><?= e($line['product_name']) ?> × <?= (int)$line['quantity'] ?></span><span>RM <?= number_format((float)$line['unit_price']*(int)$line['quantity'],2) ?></span></div><?php endforeach; ?></div><div class="order-total"><span>Total</span><strong>RM <?= number_format((float)$order['total_amount'],2) ?></strong></div></article><?php endforeach; ?></div><?php endif; ?>
+    <?php if (!$customerOrders): ?><div class="empty"><h3>No orders yet</h3><p>Your first PawMart order will show up here.</p><a class="button primary" href="?page=home">Start shopping</a></div><?php else: ?><div class="order-list"><?php foreach ($customerOrders as $order): ?><article class="order-card"><div class="order-head"><div><span class="muted small">ORDER #<?= (int)$order['id'] ?></span><h3><?= date('M j, Y',strtotime($order['created_at'])) ?></h3></div><span class="status <?= e($order['status']) ?>"><?= e(ucfirst($order['status'])) ?></span></div><div class="order-items"><?php foreach ($orders->items((int)$order['id']) as $line): ?><div><span><?= e($line['product_name']) ?> × <?= (int)$line['quantity'] ?></span><span>RM <?= number_format((float)$line['unit_price']*(int)$line['quantity'],2) ?></span></div><?php endforeach; ?></div><div class="order-total"><span>Total</span><strong>RM <?= number_format((float)$order['total_amount'],2) ?></strong></div>
+        <?php $paymentStatus = $order['payment_status'] ?? 'legacy'; ?>
+        <p>Payment: <?= e(paymentLabel($paymentStatus)) ?></p>
+        <?php if ($paymentStatus === 'unpaid'): ?>
+            <form method="post" class="status-form">
+                <?= csrf_field() ?>
+                <input type="hidden" name="id" value="<?= (int)$order['id'] ?>">
+                <button class="button small-button" name="action" value="payment_resume">Continue payment</button>
+                <button class="button small-button" name="action" value="payment_check">Check payment</button>
+                <button class="button small-button" name="action" value="payment_cancel">Cancel unpaid checkout</button>
+            </form>
+        <?php endif; ?>
+        </article><?php endforeach; ?></div><?php endif; ?>
     <?php layoutEnd(); exit;
 }
 
-if (str_starts_with($page, 'admin-')) require_admin();
 if ($page === 'admin-products') {
     $editing = !empty($_GET['edit']) ? $products->find((int)$_GET['edit']) : null;
     $adminSearch = trim((string)($_GET['q'] ?? ''));
@@ -233,9 +364,8 @@ if ($page === 'admin-categories') {
 
 if ($page === 'admin-orders') {
     $allOrders=$orders->all(); layoutStart('Manage orders',$cartCount,$flash); ?><section class="page-head admin-head"><div><p class="eyebrow">PAWMART CONTROL ROOM</p><h1>Manage orders</h1><p class="muted">Review orders and update their fulfillment status.</p></div><div class="admin-tabs"><a href="?page=admin-products">Products</a><a href="?page=admin-categories">Categories</a><a class="active" href="?page=admin-orders">Orders</a></div></section>
-    <div class="table-wrap"><table><thead><tr><th>Order</th><th>Customer</th><th>Date</th><th>Total</th><th>Status</th><th>Update status</th></tr></thead><tbody><?php foreach ($allOrders as $order): ?><tr><td><strong>#<?= (int)$order['id'] ?></strong></td><td><?= e($order['customer_name']) ?><small><?= e($order['email']) ?></small></td><td><?= date('M j, Y',strtotime($order['created_at'])) ?></td><td>RM <?= number_format((float)$order['total_amount'],2) ?></td><td><span class="status <?= e($order['status']) ?>"><?= e(ucfirst($order['status'])) ?></span></td><td><form method="post" class="status-form"><?= csrf_field() ?><input type="hidden" name="action" value="order_status"><input type="hidden" name="id" value="<?= (int)$order['id'] ?>"><select name="status"><?php foreach (['pending','processing','shipped','completed','cancelled'] as $status): ?><option value="<?= $status ?>" <?= $order['status']===$status?'selected':'' ?>><?= ucfirst($status) ?></option><?php endforeach; ?></select><button class="button small-button">Save</button></form></td></tr><?php endforeach; ?><?php if (!$allOrders): ?><tr><td colspan="6" class="muted">No orders yet.</td></tr><?php endif; ?></tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th>Order</th><th>Customer</th><th>Date</th><th>Total</th><th>Status</th><th>Payment</th><th>Update status</th></tr></thead><tbody><?php foreach ($allOrders as $order): ?><tr><td><strong>#<?= (int)$order['id'] ?></strong></td><td><?= e($order['customer_name']) ?><small><?= e($order['email']) ?></small></td><td><?= date('M j, Y',strtotime($order['created_at'])) ?></td><td>RM <?= number_format((float)$order['total_amount'],2) ?></td><td><span class="status <?= e($order['status']) ?>"><?= e(ucfirst($order['status'])) ?></span></td><td><?= e(paymentLabel($order['payment_status'] ?? 'legacy')) ?></td><td><?php if (($order['payment_status'] ?? 'legacy') === 'unpaid'): ?>Awaiting Stripe<?php else: ?><form method="post" class="status-form"><?= csrf_field() ?><input type="hidden" name="action" value="order_status"><input type="hidden" name="id" value="<?= (int)$order['id'] ?>"><select name="status"><?php foreach (['pending','processing','shipped','completed','cancelled'] as $status): ?><option value="<?= $status ?>" <?= $order['status']===$status?'selected':'' ?>><?= ucfirst($status) ?></option><?php endforeach; ?></select><button class="button small-button">Save</button></form><?php endif; ?></td></tr><?php endforeach; ?><?php if (!$allOrders): ?><tr><td colspan="7" class="muted">No orders yet.</td></tr><?php endif; ?></tbody></table></div>
     <?php layoutEnd(); exit;
 }
 
 http_response_code(404); layoutStart('Page not found',$cartCount,$flash); ?><div class="empty"><h1>Page not found</h1><p>That PawMart page could not be found.</p><a class="button primary" href="?page=home">Return to shop</a></div><?php layoutEnd();
-

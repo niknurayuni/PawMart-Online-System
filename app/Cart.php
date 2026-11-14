@@ -6,6 +6,7 @@ final class Cart
 {
     public function add(int $productId, int $quantity, int $stock): void
     {
+        if ($productId <= 0 || $stock <= 0) throw new InvalidArgumentException('This product is out of stock.');
         $_SESSION['cart'][$productId] = min($stock, (int)($_SESSION['cart'][$productId] ?? 0) + max(1, $quantity));
     }
 

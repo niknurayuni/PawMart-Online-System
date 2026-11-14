@@ -10,6 +10,14 @@ final class CategoryRepository
         return $this->db->query('SELECT c.*, COUNT(p.id) AS product_count FROM categories c LEFT JOIN products p ON p.category_id=c.id GROUP BY c.id ORDER BY c.name')->fetchAll();
     }
 
+    public function exists(int $id): bool
+    {
+        $stmt = $this->db->prepare('SELECT 1 FROM categories WHERE id = ?');
+        $stmt->execute([$id]);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
     public function save(string $name, ?int $id = null): void
     {
         if ($id) {

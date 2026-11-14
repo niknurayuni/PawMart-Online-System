@@ -51,7 +51,7 @@ INSERT INTO `categories` (`id`, `name`, `created_at`) VALUES
 
 CREATE TABLE `customers` (
   `id` int(10) UNSIGNED NOT NULL,
-  `name` varchar(120) NOT NULL,
+  `name` varchar(120) NOT NULL, 
   `email` varchar(190) NOT NULL,
   `password_hash` varchar(255) NOT NULL,
   `role` enum('customer','admin') NOT NULL DEFAULT 'customer',

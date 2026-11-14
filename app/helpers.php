@@ -11,7 +11,9 @@ function csrf_token(): string
 function csrf_field(): string { return '<input type="hidden" name="csrf" value="' . e(csrf_token()) . '">'; }
 function require_csrf(): void
 {
-    if (!hash_equals($_SESSION['csrf'] ?? '', (string)($_POST['csrf'] ?? ''))) {
+    $expected = $_SESSION['csrf'] ?? null;
+    $submitted = $_POST['csrf'] ?? null;
+    if (!is_string($expected) || !is_string($submitted) || !hash_equals($expected, $submitted)) {
         http_response_code(419); exit('Your form expired. Please go back and try again.');
     }
 }
